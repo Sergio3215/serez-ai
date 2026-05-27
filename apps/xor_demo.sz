@@ -1,0 +1,36 @@
+// XOR demo — trains a 2-layer MLP to learn the XOR function
+// Architecture: 2 → 4 (relu) → 1 (sigmoid)
+// Optimizer:    SGD lr=1.0, 3000 epochs
+
+import "serez-ai"
+
+Random.seed(42)
+
+// XOR dataset
+let X = Tensor.from([[0.0, 0.0], [0.0, 1.0], [1.0, 0.0], [1.0, 1.0]])
+let y = Tensor.from([[0.0], [1.0], [1.0], [0.0]])
+
+// Build model
+let model = new Sequential()
+model.add(new Dense(2, 4, "relu"))
+model.add(new Dense(4, 1, "sigmoid"))
+
+out "╔══════════════════════════════╗"
+out "║  serez-ai  ·  XOR demo       ║"
+out "╚══════════════════════════════╝"
+out ""
+
+// Train (lr=1.0, 3000 epochs)
+let history = model.fit(X, y, 3000, 1.0, false)
+
+out "Loss[0]:    " + history[0]
+out "Loss[2999]: " + history[2999]
+out ""
+
+// Inference
+out "Predictions (should be 0, 1, 1, 0):"
+let preds = model.predict(X)
+for (let i = 0; i < 4; i++) {
+    let p = preds.get(i, 0)
+    out "  " + Math.round(p) + "  (raw: " + p + ")"
+}

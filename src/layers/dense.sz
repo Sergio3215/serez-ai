@@ -1,0 +1,35 @@
+// Dense (fully connected) layer
+// Usage: let layer = new Dense(in_features, out_features, "relu")
+//        let y = layer.forward(x)          // x: Tensor[batch, in]
+//        layer.update(lr)                  // apply gradients after backward
+//        let params = layer.parameters()   // returns [weights, bias]
+
+export public class Dense {
+    public Dense(int in_features, int out_features, string activation) {
+        // He init: std = sqrt(2 / in_features)
+        let std = Math.sqrt(2.0 / in_features)
+        this.weights = Random.normalTensor([in_features, out_features], 0.0, std)
+        this.bias    = Tensor.zeros([out_features])
+        this.activation = activation
+    }
+
+    public forward(x) {
+        let z = x.matmul(this.weights).broadcastAdd(this.bias)
+        if (this.activation == "relu")    { return z.relu()    }
+        if (this.activation == "sigmoid") { return z.sigmoid() }
+        if (this.activation == "tanh")    { return z.tanh()    }
+        return z
+    }
+
+    // Apply SGD update after Autodiff.backward()
+    public update(lr) {
+        let dw = Autodiff.gradient(this.weights)
+        let db = Autodiff.gradient(this.bias)
+        this.weights = this.weights.sub(dw.scale(lr))
+        this.bias    = this.bias.sub(db.scale(lr))
+    }
+
+    public parameters() {
+        return [this.weights, this.bias]
+    }
+}

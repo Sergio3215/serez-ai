@@ -1,0 +1,11 @@
+// serez-ai — high-level neural network library for Serez-Code
+// Version 0.1.0
+//
+// Usage:
+//   import "serez-ai"
+//
+// Exports: Dense, MSE, BCE, Sequential
+
+import "src/layers/dense"
+import "src/training/losses"
+import "src/models/sequential"

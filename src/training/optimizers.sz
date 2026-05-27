@@ -1,0 +1,16 @@
+// Optimizers
+//
+// SGD.new(lr)        → vanilla stochastic gradient descent
+//   sgd.step(layers) → call layer.update(lr) on each layer in the array
+
+export public class SGD {
+    public SGD(decimal lr) {
+        this.lr = lr
+    }
+
+    public step(layers) {
+        for (let layer in layers) {
+            layer.update(this.lr)
+        }
+    }
+}

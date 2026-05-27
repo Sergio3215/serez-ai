@@ -1,0 +1,64 @@
+// Sequential model — Keras-style
+//
+// let model = new Sequential()
+// model.add(new Dense(2, 4, "relu"))
+// model.add(new Dense(4, 1, "sigmoid"))
+// let history = model.fit(X, y, epochs, lr, verbose)
+// let pred = model.predict(X)
+
+export public class Sequential {
+    public Sequential() {
+        this.layers = []
+    }
+
+    public add(layer) {
+        this.layers.push(layer)
+    }
+
+    // Forward pass through all layers
+    public forward(x) {
+        let h = x
+        for (let i = 0; i < this.layers.length(); i++) {
+            h = this.layers[i].forward(h)
+        }
+        return h
+    }
+
+    // Train: X[n,in], y[n,out], MSE loss, SGD updates
+    // Returns array of per-epoch loss values
+    public fit(X, y, int epochs, decimal lr, bool verbose) {
+        let losses = []
+        let loss_fn = new MSE()
+
+        for (let i = 0; i < epochs; i++) {
+            Autodiff.tape()
+            let pred = this.forward(X)
+            let loss = loss_fn.forward(pred, y)
+            Autodiff.backward(loss)
+
+            // Update each layer via index — writeback preserves changes
+            for (let j = 0; j < this.layers.length(); j++) {
+                let layer = this.layers[j]
+                layer.update(lr)
+                this.layers[j] = layer
+            }
+
+            let loss_val = loss.get(0)
+            losses.push(loss_val)
+
+            if (verbose && i % 100 == 0) {
+                out "Epoch {i} — loss: {loss_val}"
+            }
+        }
+        return losses
+    }
+
+    // Inference (no tape)
+    public predict(X) {
+        let h = X
+        for (let i = 0; i < this.layers.length(); i++) {
+            h = this.layers[i].forward(h)
+        }
+        return h
+    }
+}
