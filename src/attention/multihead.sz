@@ -1,0 +1,61 @@
+// MultiHeadAttention layer — scaled dot-product self-attention
+//
+// Usage:
+//   let attn = new MultiHeadAttention(d_model, n_heads)
+//   let y    = attn.forward(x)    // x: [seq_len, d_model] → same shape
+//   attn.update(lr)
+//
+// Weights: Wq, Wk, Wv, Wo each [d_model, d_model]
+// Internally uses x.mha() — native Rust with full BPTT
+
+export public class MultiHeadAttention {
+    public MultiHeadAttention(int d_model, int n_heads) {
+        this.d_model = d_model
+        this.n_heads = n_heads
+        let std = Math.sqrt(2.0 / d_model)
+        this.Wq = Random.normalTensor([d_model, d_model], 0.0, std)
+        this.Wk = Random.normalTensor([d_model, d_model], 0.0, std)
+        this.Wv = Random.normalTensor([d_model, d_model], 0.0, std)
+        this.Wo = Random.normalTensor([d_model, d_model], 0.0, std)
+    }
+
+    public forward(x) {
+        return x.mha(this.Wq, this.Wk, this.Wv, this.Wo, this.n_heads)
+    }
+
+    public update(lr) {
+        let dWq = Autodiff.gradient(this.Wq)
+        let dWk = Autodiff.gradient(this.Wk)
+        let dWv = Autodiff.gradient(this.Wv)
+        let dWo = Autodiff.gradient(this.Wo)
+        this.Wq = this.Wq.sub(dWq.scale(lr))
+        this.Wk = this.Wk.sub(dWk.scale(lr))
+        this.Wv = this.Wv.sub(dWv.scale(lr))
+        this.Wo = this.Wo.sub(dWo.scale(lr))
+    }
+
+    public parameters() {
+        return [this.Wq, this.Wk, this.Wv, this.Wo]
+    }
+}
+
+// LayerNorm layer — normalizes last axis, learnable scale/shift
+export public class LayerNorm {
+    public LayerNorm(int d_model, decimal eps) {
+        this.d_model = d_model
+        this.eps     = eps
+        this.gamma   = Tensor.ones([d_model])
+        this.beta    = Tensor.zeros([d_model])
+    }
+
+    public forward(x) {
+        return x.layer_norm(this.gamma, this.beta, this.eps)
+    }
+
+    public update(lr) {
+        let dg = Autodiff.gradient(this.gamma)
+        let db = Autodiff.gradient(this.beta)
+        this.gamma = this.gamma.sub(dg.scale(lr))
+        this.beta  = this.beta.sub(db.scale(lr))
+    }
+}

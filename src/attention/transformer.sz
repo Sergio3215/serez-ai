@@ -1,0 +1,40 @@
+// TransformerBlock — self-attention + feed-forward with residual connections
+//
+// Usage:
+//   let block = new TransformerBlock(d_model, n_heads, d_ff)
+//   let y     = block.forward(x)   // x: [seq_len, d_model] → same shape
+//   block.update(lr)
+//
+// Architecture (Post-LN):
+//   h = LayerNorm(x + MHA(x))
+//   y = LayerNorm(h + FFN(h))        FFN = Dense(d_ff, relu) → Dense(d_model)
+
+import "multihead"
+
+export public class TransformerBlock {
+    public TransformerBlock(int d_model, int n_heads, int d_ff) {
+        this.attn = new MultiHeadAttention(d_model, n_heads)
+        this.ln1  = new LayerNorm(d_model, 0.000001)
+        this.ff1  = new Dense(d_model, d_ff, "relu")
+        this.ff2  = new Dense(d_ff, d_model, "linear")
+        this.ln2  = new LayerNorm(d_model, 0.000001)
+    }
+
+    public forward(x) {
+        // Self-attention sublayer with residual + layer norm
+        let attn_out = this.attn.forward(x)
+        let h = this.ln1.forward(attn_out.add(x))
+
+        // Feed-forward sublayer with residual + layer norm
+        let ff_out = this.ff2.forward(this.ff1.forward(h))
+        return this.ln2.forward(ff_out.add(h))
+    }
+
+    public update(lr) {
+        this.attn.update(lr)
+        this.ln1.update(lr)
+        this.ff1.update(lr)
+        this.ff2.update(lr)
+        this.ln2.update(lr)
+    }
+}

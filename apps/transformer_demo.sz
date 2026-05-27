@@ -1,0 +1,103 @@
+// Transformer demo — sequence classification with self-attention
+//
+// Architecture:
+//   Embedding(16, 32) → TransformerBlock(32, 4, 64) → mean pool → Dense(32,1,sigmoid)
+//
+// Task: sequences with tokens > 8 are "positive", others "negative"
+// Verifies MHA + LayerNorm + residual connections train end-to-end.
+
+import "serez-ai"
+
+Random.seed(99)
+
+let vocab  = 16
+let d_model = 32
+let seq_len = 6
+let lr      = 0.02
+
+// Layers
+let emb     = new Embedding(vocab, d_model)
+let tblock  = new TransformerBlock(d_model, 4, 64)
+let pool_w  = Random.normalTensor([d_model, 1], 0.0, 0.1)  // learned mean-pool projection
+let out_l   = new Dense(d_model, 1, "sigmoid")
+let mse     = new MSE()
+
+// Positive examples: tokens mostly from [9..15]
+let pos_seqs = [
+    Tensor.from([9.0, 12.0, 10.0, 14.0, 11.0, 13.0]),
+    Tensor.from([10.0, 9.0, 15.0, 12.0, 9.0, 11.0]),
+    Tensor.from([14.0, 13.0, 11.0, 10.0, 15.0, 9.0]),
+    Tensor.from([11.0, 15.0, 9.0, 13.0, 10.0, 12.0])
+]
+// Negative examples: tokens from [0..7]
+let neg_seqs = [
+    Tensor.from([1.0, 4.0, 2.0, 6.0, 3.0, 5.0]),
+    Tensor.from([2.0, 1.0, 7.0, 4.0, 1.0, 3.0]),
+    Tensor.from([6.0, 5.0, 3.0, 2.0, 7.0, 1.0]),
+    Tensor.from([3.0, 7.0, 1.0, 5.0, 2.0, 4.0])
+]
+
+let target_pos = Tensor.ones([1, 1])
+let target_neg = Tensor.zeros([1, 1])
+
+out "╔════════════════════════════════════════════════╗"
+out "║  serez-ai v0.4  ·  Transformer demo (MHA+LN)  ║"
+out "╚════════════════════════════════════════════════╝"
+out ""
+out "d_model=32  n_heads=4  d_ff=64  seq_len=6  vocab=16"
+out "Training 120 epochs (8 samples, online SGD)..."
+out ""
+
+for (let epoch = 0; epoch < 120; epoch++) {
+    let total_loss = 0.0
+
+    // Positive examples
+    for (let k = 0; k < 4; k++) {
+        Autodiff.tape()
+        let x_emb = emb.forward(pos_seqs[k])              // [6, 32]
+        let x_enc = tblock.forward(x_emb)                 // [6, 32]
+        // Mean pool: sum over seq_len dimension, divide by seq_len
+        let pooled = x_enc.meanAxis(0).reshape([1, d_model])  // [1, 32]
+        let pred = out_l.forward(pooled)                   // [1, 1]
+        let loss = mse.forward(pred, target_pos)
+        Autodiff.backward(loss)
+        emb.update(lr)
+        tblock.update(lr)
+        out_l.update(lr)
+        total_loss = total_loss + loss.get(0)
+    }
+
+    // Negative examples
+    for (let k = 0; k < 4; k++) {
+        Autodiff.tape()
+        let x_emb = emb.forward(neg_seqs[k])
+        let x_enc = tblock.forward(x_emb)
+        let pooled = x_enc.meanAxis(0).reshape([1, d_model])
+        let pred = out_l.forward(pooled)
+        let loss = mse.forward(pred, target_neg)
+        Autodiff.backward(loss)
+        emb.update(lr)
+        tblock.update(lr)
+        out_l.update(lr)
+        total_loss = total_loss + loss.get(0)
+    }
+
+    if (epoch % 30 == 0) {
+        out "Epoch " + epoch + "  avg loss: " + (total_loss / 8.0)
+    }
+}
+
+out ""
+out "Final predictions:"
+let test_pos = pos_seqs[0]
+let test_neg = neg_seqs[0]
+
+let ep = emb.forward(test_pos)
+let ap = tblock.forward(ep)
+let pp = out_l.forward(ap.meanAxis(0).reshape([1, d_model]))
+out "  Positive [9,12,10,14,11,13]: " + pp.get(0, 0) + "  (expect ~1.0)"
+
+let en2 = emb.forward(test_neg)
+let an2 = tblock.forward(en2)
+let pn = out_l.forward(an2.meanAxis(0).reshape([1, d_model]))
+out "  Negative [1,4,2,6,3,5]:     " + pn.get(0, 0) + "  (expect ~0.0)"
