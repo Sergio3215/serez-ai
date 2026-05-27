@@ -21,7 +21,7 @@ out "╚════════════════════════
 out ""
 
 // Train (lr=1.0, 3000 epochs)
-let history = model.fit(X, y, 3000, 1.0, false)
+let history = model.fit(X, y, new MSE(), 3000, 1.0, false)
 
 out "Loss[0]:    " + history[0]
 out "Loss[2999]: " + history[2999]

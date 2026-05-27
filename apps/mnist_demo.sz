@@ -1,0 +1,53 @@
+// CNN demo — synthetic 8x8 images, binary classification
+//
+// Architecture:
+//   Conv2D(1→4, k=3, stride=1, relu)   → [N, 6, 6, 4]
+//   MaxPool2D(pool=2, stride=2)         → [N, 3, 3, 4]
+//   Flatten                             → [N, 36]
+//   Dense(36→8, relu)
+//   Dense(8→1, sigmoid)
+//
+// Verifies conv2d + max_pool2d + flatten work end-to-end with autodiff.
+
+import "serez-ai"
+
+Random.seed(7)
+
+let N = 32
+let X = Random.normalTensor([N, 8, 8, 1], 0.0, 1.0)
+
+// Labels: first half = 1, second half = 0
+let y = Tensor.zeros([N, 1])
+for (let i = 0; i < N / 2; i++) {
+    y.set(i, 0, 1.0)
+}
+
+let model = new Sequential()
+model.add(new Conv2D(1, 4, 3, 1, "relu"))
+model.add(new MaxPool2D(2, 2))
+model.add(new Flatten())
+model.add(new Dense(36, 8, "relu"))
+model.add(new Dense(8, 1, "sigmoid"))
+
+out "╔══════════════════════════════════════╗"
+out "║  serez-ai v0.2  ·  CNN demo (8x8)   ║"
+out "╚══════════════════════════════════════╝"
+out ""
+out "Input shape : [32, 8, 8, 1]"
+out "Target shape: [32, 1]"
+out ""
+out "Training 100 epochs..."
+
+let history = model.fit(X, y, new MSE(), 100, 0.01, false)
+
+out "Loss[0]  : " + history[0]
+out "Loss[99] : " + history[99]
+out ""
+
+let preds = model.predict(X)
+let ps = preds.shape()
+out "Predictions shape: [" + ps[0] + ", " + ps[1] + "]"
+out "Sample predictions (first 4):"
+for (let i = 0; i < 4; i++) {
+    out "  [" + i + "] = " + preds.get(i, 0)
+}

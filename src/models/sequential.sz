@@ -24,11 +24,10 @@ export public class Sequential {
         return h
     }
 
-    // Train: X[n,in], y[n,out], MSE loss, SGD updates
+    // Train: X, y, any loss_fn with forward(pred, y), SGD updates
     // Returns array of per-epoch loss values
-    public fit(X, y, int epochs, decimal lr, bool verbose) {
+    public fit(X, y, loss_fn, int epochs, decimal lr, bool verbose) {
         let losses = []
-        let loss_fn = new MSE()
 
         for (let i = 0; i < epochs; i++) {
             Autodiff.tape()

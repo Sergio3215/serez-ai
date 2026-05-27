@@ -1,0 +1,40 @@
+// Conv2D layer — 2D convolution using native Tensor.conv2d() with autodiff
+//
+// Usage:
+//   let layer = new Conv2D(in_ch, out_ch, kernel, stride, activation)
+//   let y = layer.forward(x)    // x: Tensor[N, H, W, C_in]  → [N, out_H, out_W, C_out]
+//   layer.update(lr)            // SGD update after Autodiff.backward()
+//
+// Weights stored as [kernel*kernel*in_ch, out_ch] (im2col-ready)
+
+export public class Conv2D {
+    public Conv2D(int in_ch, int out_ch, int kernel, int stride, string activation) {
+        this.out_ch     = out_ch
+        this.kernel     = kernel
+        this.stride     = stride
+        this.activation = activation
+        let fan_in = kernel * kernel * in_ch
+        let std    = Math.sqrt(2.0 / fan_in)
+        this.weights = Random.normalTensor([kernel * kernel * in_ch, out_ch], 0.0, std)
+        this.bias    = Tensor.zeros([out_ch])
+    }
+
+    public forward(x) {
+        let z = x.conv2d(this.weights, this.bias, this.kernel, this.stride)
+        if (this.activation == "relu")    { return z.relu()    }
+        if (this.activation == "sigmoid") { return z.sigmoid() }
+        if (this.activation == "tanh")    { return z.tanh()    }
+        return z
+    }
+
+    public update(lr) {
+        let dw = Autodiff.gradient(this.weights)
+        let db = Autodiff.gradient(this.bias)
+        this.weights = this.weights.sub(dw.scale(lr))
+        this.bias    = this.bias.sub(db.scale(lr))
+    }
+
+    public parameters() {
+        return [this.weights, this.bias]
+    }
+}

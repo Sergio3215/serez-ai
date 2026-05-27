@@ -1,0 +1,14 @@
+// Flatten layer — reshapes [N, d1, d2, ...] → [N, d1*d2*...]
+//
+// No learnable parameters. Used between Conv/Pool and Dense layers.
+
+export public class Flatten {
+    public forward(x) {
+        let s    = x.shape()
+        let batch = s[0]
+        let flat  = x.size() / batch
+        return x.reshape([batch, flat])
+    }
+
+    public update(lr) { }
+}
