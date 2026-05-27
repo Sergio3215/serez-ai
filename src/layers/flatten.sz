@@ -1,8 +1,8 @@
-// Flatten layer — reshapes [N, d1, d2, ...] → [N, d1*d2*...]
-//
-// No learnable parameters. Used between Conv/Pool and Dense layers.
+// Flatten — no learnable params; freeze/getWeights are no-ops
 
 export public class Flatten {
+    public Flatten() { this.frozen = false }
+
     public forward(x) {
         let s    = x.shape()
         let batch = s[0]
@@ -11,4 +11,10 @@ export public class Flatten {
     }
 
     public update(lr) { }
+    public update_adam(lr, beta1, beta2, t) { }
+    public update_momentum(lr, momentum) { }
+    public freeze()   { this.frozen = true  }
+    public unfreeze() { this.frozen = false }
+    public getWeights() { return [] }
+    public setWeights(ws) { }
 }

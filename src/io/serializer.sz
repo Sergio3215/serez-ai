@@ -1,0 +1,72 @@
+// Tensor serialization — save/load weights to text files
+//
+// serializeTensor(t)      → string  (format: "ndim|d1|d2|v1,v2,...")
+// deserializeTensor(s)    → Tensor
+//
+// 1D tensors: "1|n|v1,v2,...,vn"
+// 2D tensors: "2|rows|cols|v1,v2,...,vrows*cols"  (row-major)
+
+fn serializeTensor(t) {
+    let sh   = t.shape()
+    let ndim = t.ndim()
+    if (ndim == 1) {
+        let n = sh[0]
+        let s = "1|" + n + "|"
+        let i = 0
+        while (i < n) {
+            if (i > 0) { s = s + "," }
+            s = s + t.get(i)
+            i = i + 1
+        }
+        return s
+    } else {
+        let rows = sh[0]
+        let cols = sh[1]
+        let s = "2|" + rows + "|" + cols + "|"
+        let i = 0
+        while (i < rows) {
+            let j = 0
+            while (j < cols) {
+                if (i > 0 || j > 0) { s = s + "," }
+                s = s + t.get(i, j)
+                j = j + 1
+            }
+            i = i + 1
+        }
+        return s
+    }
+}
+
+fn deserializeTensor(s) {
+    // Parse: "ndim|d1[|d2]|v1,v2,..."
+    let p1   = s.indexOf("|")
+    let ndim = parseInt(s.substring(0, p1))
+    let rest = s.substring(p1 + 1, s.length())
+
+    if (ndim == 1) {
+        let p2   = rest.indexOf("|")
+        let n    = parseInt(rest.substring(0, p2))
+        let vals = rest.substring(p2 + 1, rest.length()).split(",")
+        let data = []
+        let i = 0
+        while (i < n) {
+            data.push(parseDecimal(vals[i]))
+            i = i + 1
+        }
+        return Tensor.from(data)
+    } else {
+        let p2   = rest.indexOf("|")
+        let rows = parseInt(rest.substring(0, p2))
+        let rest2 = rest.substring(p2 + 1, rest.length())
+        let p3   = rest2.indexOf("|")
+        let cols = parseInt(rest2.substring(0, p3))
+        let vals = rest2.substring(p3 + 1, rest2.length()).split(",")
+        let data = []
+        let k = 0
+        while (k < rows * cols) {
+            data.push(parseDecimal(vals[k]))
+            k = k + 1
+        }
+        return Tensor.from(data).reshape([rows, cols])
+    }
+}

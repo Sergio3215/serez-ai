@@ -1,10 +1,13 @@
-// Sequential model — Keras-style
+// Sequential model — Keras-style chained layer stack
 //
 // let model = new Sequential()
-// model.add(new Dense(2, 4, "relu"))
-// model.add(new Dense(4, 1, "sigmoid"))
-// let history = model.fit(X, y, epochs, lr, verbose)
-// let pred = model.predict(X)
+// model.add(layer)
+// model.fit(X, y, loss_fn, epochs, lr, verbose)      ← SGD, X is single tensor
+// model.fit_opt(X, y, loss_fn, epochs, opt, verbose)  ← any optimizer, X is single tensor
+// model.fit_dl(X_arr, y_arr, loss_fn, epochs, lr, batch_size, verbose)  ← DataLoader SGD
+// model.predict(X)
+// model.freeze() / model.unfreeze()
+// model.save(path) / model.load(path)
 
 export public class Sequential {
     public Sequential() {
@@ -15,49 +18,193 @@ export public class Sequential {
         this.layers.push(layer)
     }
 
-    // Forward pass through all layers
     public forward(x) {
         let h = x
-        for (let i = 0; i < this.layers.length(); i++) {
+        let i = 0
+        while (i < this.layers.length()) {
             h = this.layers[i].forward(h)
+            i = i + 1
         }
         return h
     }
 
-    // Train: X, y, any loss_fn with forward(pred, y), SGD updates
-    // Returns array of per-epoch loss values
-    public fit(X, y, loss_fn, int epochs, decimal lr, bool verbose) {
+    // SGD training — X and y are tensors (single batch)
+    public fit(X, y, loss_fn, epochs, lr, verbose) {
         let losses = []
-
-        for (let i = 0; i < epochs; i++) {
+        let i = 0
+        while (i < epochs) {
             Autodiff.tape()
             let pred = this.forward(X)
             let loss = loss_fn.forward(pred, y)
             Autodiff.backward(loss)
-
-            // Update each layer via index — writeback preserves changes
-            for (let j = 0; j < this.layers.length(); j++) {
+            let j = 0
+            while (j < this.layers.length()) {
                 let layer = this.layers[j]
                 layer.update(lr)
                 this.layers[j] = layer
+                j = j + 1
             }
-
             let loss_val = loss.get(0)
             losses.push(loss_val)
-
-            if (verbose && i % 100 == 0) {
-                out "Epoch {i} — loss: {loss_val}"
-            }
+            if (verbose && i % 10 == 0) { out "Epoch " + i + " — loss: " + loss_val }
+            i = i + 1
         }
         return losses
     }
 
-    // Inference (no tape)
-    public predict(X) {
-        let h = X
-        for (let i = 0; i < this.layers.length(); i++) {
-            h = this.layers[i].forward(h)
+    // Optimizer-based training (Adam, Momentum, SGD object)
+    public fit_opt(X, y, loss_fn, epochs, optimizer, verbose) {
+        let losses = []
+        let i = 0
+        while (i < epochs) {
+            Autodiff.tape()
+            let pred = this.forward(X)
+            let loss = loss_fn.forward(pred, y)
+            Autodiff.backward(loss)
+            optimizer.begin_step()
+            let j = 0
+            while (j < this.layers.length()) {
+                let layer = this.layers[j]
+                layer = optimizer.step_layer(layer)
+                this.layers[j] = layer
+                j = j + 1
+            }
+            let loss_val = loss.get(0)
+            losses.push(loss_val)
+            if (verbose && i % 10 == 0) { out "Epoch " + i + " — loss: " + loss_val }
+            i = i + 1
         }
-        return h
+        return losses
+    }
+
+    // DataLoader-based SGD — X_arr and y_arr are arrays of tensors (one per sample)
+    public fit_dl(X_arr, y_arr, loss_fn, epochs, lr, batch_size, verbose) {
+        let n = X_arr.length()
+        let losses = []
+        let e = 0
+        while (e < epochs) {
+            // Shuffle indices
+            let indices = []
+            let k = 0
+            while (k < n) { indices.push(k); k = k + 1 }
+            indices = Random.shuffle(indices)
+            // Mini-batch loop
+            let epoch_loss = 0.0
+            let start = 0
+            while (start < n) {
+                let end = start + batch_size
+                if (end > n) { end = n }
+                let b = start
+                while (b < end) {
+                    let idx = indices[b]
+                    Autodiff.tape()
+                    let pred = this.forward(X_arr[idx])
+                    let loss = loss_fn.forward(pred, y_arr[idx])
+                    Autodiff.backward(loss)
+                    let j = 0
+                    while (j < this.layers.length()) {
+                        let layer = this.layers[j]
+                        layer.update(lr)
+                        this.layers[j] = layer
+                        j = j + 1
+                    }
+                    epoch_loss = epoch_loss + loss.get(0)
+                    b = b + 1
+                }
+                start = start + batch_size
+            }
+            losses.push(epoch_loss)
+            if (verbose && e % 10 == 0) { out "Epoch " + e + " — loss: " + epoch_loss }
+            e = e + 1
+        }
+        return losses
+    }
+
+    public predict(X) { return this.forward(X) }
+
+    // freeze/unfreeze all layers
+    public freeze() {
+        let i = 0
+        while (i < this.layers.length()) {
+            let layer = this.layers[i]
+            layer.frozen = true
+            this.layers[i] = layer
+            i = i + 1
+        }
+    }
+
+    public unfreeze() {
+        let i = 0
+        while (i < this.layers.length()) {
+            let layer = this.layers[i]
+            layer.frozen = false
+            this.layers[i] = layer
+            i = i + 1
+        }
+    }
+
+    // Collect all weight tensors from all layers (in order)
+    public getWeights() {
+        let all = []
+        let i = 0
+        while (i < this.layers.length()) {
+            let ws = this.layers[i].getWeights()
+            let j = 0
+            while (j < ws.length()) {
+                all.push(ws[j])
+                j = j + 1
+            }
+            i = i + 1
+        }
+        return all
+    }
+
+    // Set all weight tensors (must match getWeights() order and count)
+    public setWeights(all_ws) {
+        let idx = 0
+        let i = 0
+        while (i < this.layers.length()) {
+            let layer = this.layers[i]
+            let n_w = layer.getWeights().length()
+            let layer_ws = []
+            let j = 0
+            while (j < n_w) {
+                layer_ws.push(all_ws[idx])
+                idx = idx + 1
+                j = j + 1
+            }
+            layer.setWeights(layer_ws)
+            this.layers[i] = layer
+            i = i + 1
+        }
+    }
+
+    // Serialize all weights to a text file (one tensor per line)
+    public save(path) {
+        let ws = this.getWeights()
+        let content = ""
+        let i = 0
+        while (i < ws.length()) {
+            if (i > 0) { content = content + "\n" }
+            content = content + serializeTensor(ws[i])
+            i = i + 1
+        }
+        File.write(path, content)
+    }
+
+    // Load weights from a file saved with save()
+    public load(path) {
+        let content = File.read(path)
+        let lines = content.split("\n")
+        let tensors = []
+        let i = 0
+        while (i < lines.length()) {
+            let line = lines[i]
+            if (line.length() > 0) {
+                tensors.push(deserializeTensor(line))
+            }
+            i = i + 1
+        }
+        this.setWeights(tensors)
     }
 }

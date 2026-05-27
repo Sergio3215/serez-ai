@@ -1,24 +1,30 @@
 // Recurrent layers: LSTM and GRU
 //
-// LSTM(input_size, hidden_size)
-//   forward(x): x[seq_len, input_size] → [1, hidden_size]  (last hidden state)
-//   update(lr): SGD update on Wx, Wh, b
+// LSTM(input_size, hidden_size) → forward(x): [1, hidden_size]
+// GRU(input_size, hidden_size)  → forward(x): [1, hidden_size]
 //
-// GRU(input_size, hidden_size)
-//   forward(x): x[seq_len, input_size] → [1, hidden_size]
-//   update(lr): SGD update on Wx, Wh, b
-//
-// Weights layout:
-//   LSTM — Wx[input_size, 4*H], Wh[H, 4*H], b[4*H]   (i,f,g,o gates concatenated)
-//   GRU  — Wx[input_size, 3*H], Wh[H, 3*H], b[3*H]   (r,z,n gates concatenated)
+// Both support: update(lr), update_adam(lr,b1,b2,t), update_momentum(lr,m),
+//               freeze/unfreeze, getWeights/setWeights
 
 export public class LSTM {
     public LSTM(int input_size, int hidden_size) {
         this.hidden_size = hidden_size
         let std = Math.sqrt(1.0 / input_size)
-        this.Wx = Random.normalTensor([input_size,   4 * hidden_size], 0.0, std)
-        this.Wh = Random.normalTensor([hidden_size,  4 * hidden_size], 0.0, std)
+        this.Wx = Random.normalTensor([input_size,  4 * hidden_size], 0.0, std)
+        this.Wh = Random.normalTensor([hidden_size, 4 * hidden_size], 0.0, std)
         this.b  = Tensor.zeros([4 * hidden_size])
+        this.frozen = false
+        // Adam moments
+        this.mWx = Tensor.zeros([input_size,  4 * hidden_size])
+        this.vWx = Tensor.zeros([input_size,  4 * hidden_size])
+        this.mWh = Tensor.zeros([hidden_size, 4 * hidden_size])
+        this.vWh = Tensor.zeros([hidden_size, 4 * hidden_size])
+        this.mb  = Tensor.zeros([4 * hidden_size])
+        this.vb  = Tensor.zeros([4 * hidden_size])
+        // Momentum velocity
+        this.pWx = Tensor.zeros([input_size,  4 * hidden_size])
+        this.pWh = Tensor.zeros([hidden_size, 4 * hidden_size])
+        this.pb  = Tensor.zeros([4 * hidden_size])
     }
 
     public forward(x) {
@@ -28,6 +34,7 @@ export public class LSTM {
     }
 
     public update(lr) {
+        if (this.frozen) { return }
         let dWx = Autodiff.gradient(this.Wx)
         let dWh = Autodiff.gradient(this.Wh)
         let db  = Autodiff.gradient(this.b)
@@ -36,18 +43,74 @@ export public class LSTM {
         this.b  = this.b.sub(db.scale(lr))
     }
 
-    public parameters() {
-        return [this.Wx, this.Wh, this.b]
+    public update_adam(lr, beta1, beta2, t) {
+        if (this.frozen) { return }
+        let dWx = Autodiff.gradient(this.Wx)
+        let dWh = Autodiff.gradient(this.Wh)
+        let db  = Autodiff.gradient(this.b)
+        this.mWx = this.mWx.scale(beta1).add(dWx.scale(1.0 - beta1))
+        this.vWx = this.vWx.scale(beta2).add(dWx.mul(dWx).scale(1.0 - beta2))
+        this.mWh = this.mWh.scale(beta1).add(dWh.scale(1.0 - beta1))
+        this.vWh = this.vWh.scale(beta2).add(dWh.mul(dWh).scale(1.0 - beta2))
+        this.mb  = this.mb.scale(beta1).add(db.scale(1.0 - beta1))
+        this.vb  = this.vb.scale(beta2).add(db.mul(db).scale(1.0 - beta2))
+        let b1t = Math.pow(beta1, t)
+        let b2t = Math.pow(beta2, t)
+        let inv  = 1.0 / (1.0 - b1t)
+        let inv2 = 1.0 / (1.0 - b2t)
+        let rWx = this.Wx.shape()[0]
+        let cWx = this.Wx.shape()[1]
+        let eps_Wx = Tensor.ones([rWx * cWx]).scale(0.0000001).reshape([rWx, cWx])
+        let inv_Wx = this.vWx.scale(inv2).sqrt().add(eps_Wx).pow(-1.0)
+        this.Wx = this.Wx.sub(this.mWx.scale(inv).mul(inv_Wx).scale(lr))
+        let rWh = this.Wh.shape()[0]
+        let cWh = this.Wh.shape()[1]
+        let eps_Wh = Tensor.ones([rWh * cWh]).scale(0.0000001).reshape([rWh, cWh])
+        let inv_Wh = this.vWh.scale(inv2).sqrt().add(eps_Wh).pow(-1.0)
+        this.Wh = this.Wh.sub(this.mWh.scale(inv).mul(inv_Wh).scale(lr))
+        let nb = this.b.shape()[0]
+        let eps_b = Tensor.ones([nb]).scale(0.0000001)
+        let inv_b = this.vb.scale(inv2).sqrt().add(eps_b).pow(-1.0)
+        this.b = this.b.sub(this.mb.scale(inv).mul(inv_b).scale(lr))
     }
+
+    public update_momentum(lr, momentum) {
+        if (this.frozen) { return }
+        let dWx = Autodiff.gradient(this.Wx)
+        let dWh = Autodiff.gradient(this.Wh)
+        let db  = Autodiff.gradient(this.b)
+        this.pWx = this.pWx.scale(momentum).sub(dWx.scale(lr))
+        this.pWh = this.pWh.scale(momentum).sub(dWh.scale(lr))
+        this.pb  = this.pb.scale(momentum).sub(db.scale(lr))
+        this.Wx = this.Wx.add(this.pWx)
+        this.Wh = this.Wh.add(this.pWh)
+        this.b  = this.b.add(this.pb)
+    }
+
+    public freeze()   { this.frozen = true  }
+    public unfreeze() { this.frozen = false }
+    public getWeights() { return [this.Wx, this.Wh, this.b] }
+    public setWeights(ws) { this.Wx = ws[0]; this.Wh = ws[1]; this.b = ws[2] }
+    public parameters() { return [this.Wx, this.Wh, this.b] }
 }
 
 export public class GRU {
     public GRU(int input_size, int hidden_size) {
         this.hidden_size = hidden_size
         let std = Math.sqrt(1.0 / input_size)
-        this.Wx = Random.normalTensor([input_size,   3 * hidden_size], 0.0, std)
-        this.Wh = Random.normalTensor([hidden_size,  3 * hidden_size], 0.0, std)
+        this.Wx = Random.normalTensor([input_size,  3 * hidden_size], 0.0, std)
+        this.Wh = Random.normalTensor([hidden_size, 3 * hidden_size], 0.0, std)
         this.b  = Tensor.zeros([3 * hidden_size])
+        this.frozen = false
+        this.mWx = Tensor.zeros([input_size,  3 * hidden_size])
+        this.vWx = Tensor.zeros([input_size,  3 * hidden_size])
+        this.mWh = Tensor.zeros([hidden_size, 3 * hidden_size])
+        this.vWh = Tensor.zeros([hidden_size, 3 * hidden_size])
+        this.mb  = Tensor.zeros([3 * hidden_size])
+        this.vb  = Tensor.zeros([3 * hidden_size])
+        this.pWx = Tensor.zeros([input_size,  3 * hidden_size])
+        this.pWh = Tensor.zeros([hidden_size, 3 * hidden_size])
+        this.pb  = Tensor.zeros([3 * hidden_size])
     }
 
     public forward(x) {
@@ -56,6 +119,7 @@ export public class GRU {
     }
 
     public update(lr) {
+        if (this.frozen) { return }
         let dWx = Autodiff.gradient(this.Wx)
         let dWh = Autodiff.gradient(this.Wh)
         let db  = Autodiff.gradient(this.b)
@@ -64,7 +128,53 @@ export public class GRU {
         this.b  = this.b.sub(db.scale(lr))
     }
 
-    public parameters() {
-        return [this.Wx, this.Wh, this.b]
+    public update_adam(lr, beta1, beta2, t) {
+        if (this.frozen) { return }
+        let dWx = Autodiff.gradient(this.Wx)
+        let dWh = Autodiff.gradient(this.Wh)
+        let db  = Autodiff.gradient(this.b)
+        this.mWx = this.mWx.scale(beta1).add(dWx.scale(1.0 - beta1))
+        this.vWx = this.vWx.scale(beta2).add(dWx.mul(dWx).scale(1.0 - beta2))
+        this.mWh = this.mWh.scale(beta1).add(dWh.scale(1.0 - beta1))
+        this.vWh = this.vWh.scale(beta2).add(dWh.mul(dWh).scale(1.0 - beta2))
+        this.mb  = this.mb.scale(beta1).add(db.scale(1.0 - beta1))
+        this.vb  = this.vb.scale(beta2).add(db.mul(db).scale(1.0 - beta2))
+        let b1t = Math.pow(beta1, t)
+        let b2t = Math.pow(beta2, t)
+        let inv  = 1.0 / (1.0 - b1t)
+        let inv2 = 1.0 / (1.0 - b2t)
+        let rWx = this.Wx.shape()[0]
+        let cWx = this.Wx.shape()[1]
+        let eps_Wx = Tensor.ones([rWx * cWx]).scale(0.0000001).reshape([rWx, cWx])
+        let inv_Wx = this.vWx.scale(inv2).sqrt().add(eps_Wx).pow(-1.0)
+        this.Wx = this.Wx.sub(this.mWx.scale(inv).mul(inv_Wx).scale(lr))
+        let rWh = this.Wh.shape()[0]
+        let cWh = this.Wh.shape()[1]
+        let eps_Wh = Tensor.ones([rWh * cWh]).scale(0.0000001).reshape([rWh, cWh])
+        let inv_Wh = this.vWh.scale(inv2).sqrt().add(eps_Wh).pow(-1.0)
+        this.Wh = this.Wh.sub(this.mWh.scale(inv).mul(inv_Wh).scale(lr))
+        let nb = this.b.shape()[0]
+        let eps_b = Tensor.ones([nb]).scale(0.0000001)
+        let inv_b = this.vb.scale(inv2).sqrt().add(eps_b).pow(-1.0)
+        this.b = this.b.sub(this.mb.scale(inv).mul(inv_b).scale(lr))
     }
+
+    public update_momentum(lr, momentum) {
+        if (this.frozen) { return }
+        let dWx = Autodiff.gradient(this.Wx)
+        let dWh = Autodiff.gradient(this.Wh)
+        let db  = Autodiff.gradient(this.b)
+        this.pWx = this.pWx.scale(momentum).sub(dWx.scale(lr))
+        this.pWh = this.pWh.scale(momentum).sub(dWh.scale(lr))
+        this.pb  = this.pb.scale(momentum).sub(db.scale(lr))
+        this.Wx = this.Wx.add(this.pWx)
+        this.Wh = this.Wh.add(this.pWh)
+        this.b  = this.b.add(this.pb)
+    }
+
+    public freeze()   { this.frozen = true  }
+    public unfreeze() { this.frozen = false }
+    public getWeights() { return [this.Wx, this.Wh, this.b] }
+    public setWeights(ws) { this.Wx = ws[0]; this.Wh = ws[1]; this.b = ws[2] }
+    public parameters() { return [this.Wx, this.Wh, this.b] }
 }

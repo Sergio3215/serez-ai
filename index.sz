@@ -1,12 +1,24 @@
 // serez-ai — high-level neural network library for Serez-Code
-// Version 0.4.0
+// Version 1.0.0
 //
 // Usage:
 //   import "serez-ai"
 //
-// Exports: Dense, Conv2D, MaxPool2D, Flatten, Embedding, LSTM, GRU,
-//          MultiHeadAttention, LayerNorm, TransformerBlock,
-//          MSE, BCE, Sequential
+// Layers:
+//   Dense, Conv2D, MaxPool2D, Flatten, Embedding, LSTM, GRU,
+//   MultiHeadAttention, LayerNorm, TransformerBlock
+//
+// Training:
+//   MSE, BCE                          ← loss functions
+//   Sequential                        ← model container (fit, fit_opt, fit_dl,
+//                                        freeze, save, load, predict)
+//   Adam, Momentum, SGD               ← optimizers
+//
+// Data:
+//   DataLoader                        ← shuffled mini-batch iteration
+//
+// IO:
+//   serializeTensor, deserializeTensor ← low-level tensor serialization
 
 import "src/layers/dense"
 import "src/layers/conv2d"
@@ -17,4 +29,7 @@ import "src/layers/recurrent"
 import "src/attention/multihead"
 import "src/attention/transformer"
 import "src/training/losses"
+import "src/training/adam"
+import "src/data/loader"
+import "src/io/serializer"
 import "src/models/sequential"

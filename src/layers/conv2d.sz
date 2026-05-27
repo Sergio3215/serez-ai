@@ -1,11 +1,12 @@
 // Conv2D layer — 2D convolution using native Tensor.conv2d() with autodiff
 //
-// Usage:
-//   let layer = new Conv2D(in_ch, out_ch, kernel, stride, activation)
-//   let y = layer.forward(x)    // x: Tensor[N, H, W, C_in]  → [N, out_H, out_W, C_out]
-//   layer.update(lr)            // SGD update after Autodiff.backward()
-//
-// Weights stored as [kernel*kernel*in_ch, out_ch] (im2col-ready)
+// new Conv2D(in_ch, out_ch, kernel, stride, activation)
+//   forward(x)               → Tensor [N, out_H, out_W, C_out]
+//   update(lr)               → SGD (skipped if frozen)
+//   update_adam(lr,b1,b2,t)  → Adam
+//   freeze() / unfreeze()
+//   getWeights()             → [weights, bias]
+//   setWeights([w, b])       → void
 
 export public class Conv2D {
     public Conv2D(int in_ch, int out_ch, int kernel, int stride, string activation) {
@@ -17,6 +18,13 @@ export public class Conv2D {
         let std    = Math.sqrt(2.0 / fan_in)
         this.weights = Random.normalTensor([kernel * kernel * in_ch, out_ch], 0.0, std)
         this.bias    = Tensor.zeros([out_ch])
+        this.frozen  = false
+        this.mw = Tensor.zeros([kernel * kernel * in_ch, out_ch])
+        this.vw = Tensor.zeros([kernel * kernel * in_ch, out_ch])
+        this.mb = Tensor.zeros([out_ch])
+        this.vb = Tensor.zeros([out_ch])
+        this.pw = Tensor.zeros([kernel * kernel * in_ch, out_ch])
+        this.pb = Tensor.zeros([out_ch])
     }
 
     public forward(x) {
@@ -28,13 +36,51 @@ export public class Conv2D {
     }
 
     public update(lr) {
+        if (this.frozen) { return }
         let dw = Autodiff.gradient(this.weights)
         let db = Autodiff.gradient(this.bias)
         this.weights = this.weights.sub(dw.scale(lr))
         this.bias    = this.bias.sub(db.scale(lr))
     }
 
-    public parameters() {
-        return [this.weights, this.bias]
+    public update_adam(lr, beta1, beta2, t) {
+        if (this.frozen) { return }
+        let dw = Autodiff.gradient(this.weights)
+        let db = Autodiff.gradient(this.bias)
+        this.mw = this.mw.scale(beta1).add(dw.scale(1.0 - beta1))
+        this.vw = this.vw.scale(beta2).add(dw.mul(dw).scale(1.0 - beta2))
+        this.mb = this.mb.scale(beta1).add(db.scale(1.0 - beta1))
+        this.vb = this.vb.scale(beta2).add(db.mul(db).scale(1.0 - beta2))
+        let b1t = Math.pow(beta1, t)
+        let b2t = Math.pow(beta2, t)
+        let mw_hat = this.mw.scale(1.0 / (1.0 - b1t))
+        let vw_hat = this.vw.scale(1.0 / (1.0 - b2t))
+        let mb_hat = this.mb.scale(1.0 / (1.0 - b1t))
+        let vb_hat = this.vb.scale(1.0 / (1.0 - b2t))
+        let rows = this.weights.shape()[0]
+        let cols = this.weights.shape()[1]
+        let eps_w = Tensor.ones([rows * cols]).scale(0.0000001).reshape([rows, cols])
+        let inv_w = vw_hat.sqrt().add(eps_w).pow(-1.0)
+        this.weights = this.weights.sub(mw_hat.mul(inv_w).scale(lr))
+        let nb = this.bias.shape()[0]
+        let eps_b = Tensor.ones([nb]).scale(0.0000001)
+        let inv_b = vb_hat.sqrt().add(eps_b).pow(-1.0)
+        this.bias = this.bias.sub(mb_hat.mul(inv_b).scale(lr))
     }
+
+    public update_momentum(lr, momentum) {
+        if (this.frozen) { return }
+        let dw = Autodiff.gradient(this.weights)
+        let db = Autodiff.gradient(this.bias)
+        this.pw = this.pw.scale(momentum).sub(dw.scale(lr))
+        this.pb = this.pb.scale(momentum).sub(db.scale(lr))
+        this.weights = this.weights.add(this.pw)
+        this.bias    = this.bias.add(this.pb)
+    }
+
+    public freeze()   { this.frozen = true  }
+    public unfreeze() { this.frozen = false }
+    public getWeights() { return [this.weights, this.bias] }
+    public setWeights(ws) { this.weights = ws[0]; this.bias = ws[1] }
+    public parameters() { return [this.weights, this.bias] }
 }

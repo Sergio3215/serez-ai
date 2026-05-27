@@ -1,0 +1,203 @@
+// Transfer Learning demo — serez-ai v1.0
+//
+// Phase 1: Train a base feature extractor (Dense 4→8→4) on Task A
+//          Task A: classify if sum(x) > 0  (4D input → binary label)
+//
+// Phase 2: Save base weights → reload → freeze base
+//          Add a new classification head (Dense 4→1 sigmoid)
+//          Fine-tune only the head on Task B
+//          Task B: classify if max(x) > 0.4  (same inputs, different rule)
+//
+// Shows: gradient updates stop at frozen layers; head converges faster than
+//        training from scratch because the base already extracts useful features.
+
+import "serez-ai"
+
+Random.seed(42)
+
+// ── Dataset ───────────────────────────────────────────────────────────────────
+// Shared 4D inputs
+let X = [
+    Tensor.from([[1.0,  0.8,  0.5,  0.3]]),
+    Tensor.from([[0.6,  0.7, -0.1,  0.4]]),
+    Tensor.from([[-0.5, 0.9,  0.2,  0.1]]),
+    Tensor.from([[-0.8,-0.6, -0.4, -0.2]]),
+    Tensor.from([[-1.0,-0.9, -0.7, -0.5]]),
+    Tensor.from([[0.3, -0.8, -0.9, -0.6]])
+]
+
+// Task A labels: sum(x) > 0 → 1.0, else 0.0
+let yA = [
+    Tensor.from([[1.0]]),  // sum=2.6  > 0
+    Tensor.from([[1.0]]),  // sum=1.6  > 0
+    Tensor.from([[1.0]]),  // sum=0.7  > 0
+    Tensor.from([[0.0]]),  // sum=-2.0 < 0
+    Tensor.from([[0.0]]),  // sum=-3.1 < 0
+    Tensor.from([[0.0]])   // sum=-2.0 < 0
+]
+
+// Task B labels: max(x) > 0.4 → 1.0, else 0.0
+let yB = [
+    Tensor.from([[1.0]]),  // max=1.0  > 0.4
+    Tensor.from([[1.0]]),  // max=0.7  > 0.4
+    Tensor.from([[1.0]]),  // max=0.9  > 0.4
+    Tensor.from([[0.0]]),  // max=0.3  < 0.4
+    Tensor.from([[0.0]]),  // max=-0.5 < 0.4
+    Tensor.from([[0.0]])   // max=0.3  < 0.4
+]
+
+let mse = new MSE()
+
+// ── Phase 1: Train base model on Task A ───────────────────────────────────────
+out "=== Phase 1: Training base model on Task A (sum > 0) ==="
+
+let base = new Sequential()
+base.add(new Dense(4, 8, "relu"))
+base.add(new Dense(8, 4, "relu"))
+base.add(new Dense(4, 1, "sigmoid"))
+
+let adam_base = new Adam(0.01, 0.9, 0.999)
+let n = X.length()
+let epoch = 0
+let loss_first_A = 0.0
+let loss_last_A  = 0.0
+
+while (epoch < 80) {
+    let ep_loss = 0.0
+    let i = 0
+    while (i < n) {
+        Autodiff.tape()
+        let pred = base.forward(X[i])
+        let loss = mse.forward(pred, yA[i])
+        Autodiff.backward(loss)
+        adam_base.begin_step()
+        let j = 0
+        while (j < base.layers.length()) {
+            let layer = base.layers[j]
+            layer = adam_base.step_layer(layer)
+            base.layers[j] = layer
+            j = j + 1
+        }
+        ep_loss = ep_loss + loss.get(0)
+        i = i + 1
+    }
+    if (epoch == 0)  { loss_first_A = ep_loss }
+    if (epoch == 79) { loss_last_A  = ep_loss }
+    epoch = epoch + 1
+}
+
+out "Task A loss: " + loss_first_A + " → " + loss_last_A
+let pred_pos_A = base.predict(X[0]).get(0, 0)
+let pred_neg_A = base.predict(X[3]).get(0, 0)
+out "Task A pos pred=" + pred_pos_A + "  neg pred=" + pred_neg_A
+
+// ── Phase 2: Save & reload base (sans head) ───────────────────────────────────
+out ""
+out "=== Phase 2: Saving base weights → load into frozen feature extractor ==="
+
+base.save("transfer_base.szai")
+out "Saved to transfer_base.szai"
+
+// Build feature extractor (same arch minus head) and load weights
+let feat = new Sequential()
+feat.add(new Dense(4, 8, "relu"))
+feat.add(new Dense(8, 4, "relu"))
+feat.add(new Dense(4, 1, "sigmoid"))
+feat.load("transfer_base.szai")
+
+// Freeze entire base — head below will be separate model
+feat.freeze()
+out "Base frozen — only head will train"
+
+// ── Phase 3: Train new head on Task B ─────────────────────────────────────────
+out ""
+out "=== Phase 3: Fine-tuning head on Task B (max > 0.4) ==="
+
+let head = new Sequential()
+head.add(new Dense(4, 1, "sigmoid"))
+
+let adam_head = new Adam(0.01, 0.9, 0.999)
+let pool_w = Tensor.from([[0.25], [0.25], [0.25], [0.25]])
+
+epoch = 0
+let loss_first_B = 0.0
+let loss_last_B  = 0.0
+
+while (epoch < 80) {
+    let ep_loss = 0.0
+    let i = 0
+    while (i < n) {
+        Autodiff.tape()
+        // Extract features through frozen base (first 2 layers only — skip the old head)
+        let h0 = feat.layers[0].forward(X[i])
+        let h1 = feat.layers[1].forward(h0)
+        // Pool features: [4] or [1,4] → [1,4]
+        let features = h1
+        // Forward through new head
+        let pred = head.forward(features)
+        let loss = mse.forward(pred, yB[i])
+        Autodiff.backward(loss)
+        // Only update head layers (feat is frozen — its update() is no-op anyway)
+        adam_head.begin_step()
+        let j = 0
+        while (j < head.layers.length()) {
+            let layer = head.layers[j]
+            layer = adam_head.step_layer(layer)
+            head.layers[j] = layer
+            j = j + 1
+        }
+        ep_loss = ep_loss + loss.get(0)
+        i = i + 1
+    }
+    if (epoch == 0)  { loss_first_B = ep_loss }
+    if (epoch == 79) { loss_last_B  = ep_loss }
+    epoch = epoch + 1
+}
+
+out "Task B loss (transfer): " + loss_first_B + " → " + loss_last_B
+
+// ── Phase 4: Compare — train head from scratch ────────────────────────────────
+out ""
+out "=== Phase 4: Scratch baseline — head only, random features (no transfer) ==="
+
+let scratch = new Sequential()
+scratch.add(new Dense(4, 4, "relu"))
+scratch.add(new Dense(4, 1, "sigmoid"))
+
+let adam_scratch = new Adam(0.01, 0.9, 0.999)
+epoch = 0
+let loss_first_scratch = 0.0
+let loss_last_scratch  = 0.0
+
+while (epoch < 80) {
+    let ep_loss = 0.0
+    let i = 0
+    while (i < n) {
+        Autodiff.tape()
+        let pred = scratch.forward(X[i])
+        let loss = mse.forward(pred, yB[i])
+        Autodiff.backward(loss)
+        adam_scratch.begin_step()
+        let j = 0
+        while (j < scratch.layers.length()) {
+            let layer = scratch.layers[j]
+            layer = adam_scratch.step_layer(layer)
+            scratch.layers[j] = layer
+            j = j + 1
+        }
+        ep_loss = ep_loss + loss.get(0)
+        i = i + 1
+    }
+    if (epoch == 0)  { loss_first_scratch = ep_loss }
+    if (epoch == 79) { loss_last_scratch  = ep_loss }
+    epoch = epoch + 1
+}
+
+out "Task B loss (scratch): " + loss_first_scratch + " → " + loss_last_scratch
+
+// ── Results ───────────────────────────────────────────────────────────────────
+out ""
+out "=== Summary ==="
+out "Task A converged: " + (loss_last_A < loss_first_A * 0.5)
+out "Transfer head converged: " + (loss_last_B < loss_first_B * 0.5)
+out "Scratch head converged: " + (loss_last_scratch < loss_first_scratch * 0.5)

@@ -1,0 +1,77 @@
+// Adam optimizer — adaptive moment estimation
+//
+// Usage:
+//   let opt = new Adam(lr, beta1, beta2)   // e.g. Adam(0.001, 0.9, 0.999)
+//   // After Autodiff.backward(loss):
+//   opt.step_layer(layer)                  // update one layer in-place
+//
+// In Sequential.fit_opt(), the model calls opt.begin_step() once per
+// training step (increments t), then opt.step_layer(layer) per layer.
+//
+// Adam update rule:
+//   m = b1*m + (1-b1)*g
+//   v = b2*v + (1-b2)*g²
+//   m_hat = m / (1 - b1^t)      (bias correction)
+//   v_hat = v / (1 - b2^t)
+//   w -= lr * m_hat / (sqrt(v_hat) + eps)
+//
+// Division implemented as: m_hat * (sqrt(v_hat) + eps)^(-1)  using Tensor.pow(-1.0)
+
+export public class Adam {
+    public Adam(lr, beta1, beta2) {
+        this.lr    = lr
+        this.beta1 = beta1
+        this.beta2 = beta2
+        this.t     = 0.0
+    }
+
+    public begin_step() {
+        this.t = this.t + 1.0
+    }
+
+    // Call after Autodiff.backward() to update one layer (checks layer.frozen)
+    // Returns the updated layer (Serez-Code passes args by value, so return is required)
+    public step_layer(layer) {
+        if (layer.frozen) { return layer }
+        layer.update_adam(this.lr, this.beta1, this.beta2, this.t)
+        return layer
+    }
+}
+
+// SGD with momentum — lighter alternative
+//
+// Usage:
+//   let opt = new Momentum(lr, momentum)  // e.g. Momentum(0.01, 0.9)
+//   opt.step_layer(layer)
+//
+// Update: v = m*v - lr*g;  w = w + v   (Nesterov-free heavy-ball)
+
+export public class Momentum {
+    public Momentum(lr, momentum) {
+        this.lr       = lr
+        this.momentum = momentum
+    }
+
+    public begin_step() { }
+
+    public step_layer(layer) {
+        if (layer.frozen) { return layer }
+        layer.update_momentum(this.lr, this.momentum)
+        return layer
+    }
+}
+
+// Vanilla SGD — wraps layer.update(lr), respects frozen flag
+export public class SGD {
+    public SGD(lr) {
+        this.lr = lr
+    }
+
+    public begin_step() { }
+
+    public step_layer(layer) {
+        if (layer.frozen) { return layer }
+        layer.update(this.lr)
+        return layer
+    }
+}

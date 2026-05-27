@@ -1,18 +1,22 @@
-// Pooling layers
+// Pooling layers — no learnable params; freeze/getWeights are no-ops
 //
 // MaxPool2D(pool, stride)
-//   forward(x): x[N,H,W,C] → [N, out_H, out_W, C]  (max pooling with autodiff)
-//   update(lr): no-op (no learnable params)
+//   forward(x): [N,H,W,C] → [N, out_H, out_W, C]
 
 export public class MaxPool2D {
     public MaxPool2D(int pool, int stride) {
         this.pool   = pool
         this.stride = stride
+        this.frozen = false
     }
 
-    public forward(x) {
-        return x.max_pool2d(this.pool, this.stride)
-    }
+    public forward(x) { return x.max_pool2d(this.pool, this.stride) }
 
     public update(lr) { }
+    public update_adam(lr, beta1, beta2, t) { }
+    public update_momentum(lr, momentum) { }
+    public freeze()   { this.frozen = true  }
+    public unfreeze() { this.frozen = false }
+    public getWeights() { return [] }
+    public setWeights(ws) { }
 }

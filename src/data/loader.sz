@@ -1,0 +1,48 @@
+// DataLoader — shuffled mini-batch iteration over arrays of samples
+//
+// Usage:
+//   let dl = new DataLoader(n_samples, batch_size)
+//   dl.shuffle()                 // randomize order (Fisher-Yates via Random.shuffle)
+//   let batches = dl.batches()   // [[idx,...], [idx,...], ...]
+//
+// Batches are arrays of integer indices into the user's X_arr / y_arr.
+// Each epoch: shuffle → batches → for each batch, accumulate forward+backward.
+
+export public class DataLoader {
+    public DataLoader(int n_samples, int batch_size) {
+        this.n_samples  = n_samples
+        this.batch_size = batch_size
+        this.indices    = []
+        let i = 0
+        while (i < n_samples) {
+            this.indices.push(i)
+            i = i + 1
+        }
+    }
+
+    public shuffle() {
+        this.indices = Random.shuffle(this.indices)
+    }
+
+    public batches() {
+        let result = []
+        let i = 0
+        while (i < this.n_samples) {
+            let batch = []
+            let j = 0
+            while (j < this.batch_size && i + j < this.n_samples) {
+                batch.push(this.indices[i + j])
+                j = j + 1
+            }
+            result.push(batch)
+            i = i + this.batch_size
+        }
+        return result
+    }
+
+    public n_batches() {
+        let full = this.n_samples / this.batch_size
+        if (this.n_samples % this.batch_size > 0) { return full + 1 }
+        return full
+    }
+}

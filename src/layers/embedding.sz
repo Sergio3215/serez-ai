@@ -1,9 +1,12 @@
 // Embedding layer — lookup table via one-hot + matmul (autodiff-compatible)
 //
-// Usage:
-//   let emb = new Embedding(vocab_size, embed_dim)
-//   let y   = emb.forward(x)   // x: Tensor[seq_len] of integer indices → [seq_len, embed_dim]
-//   emb.update(lr)
+// new Embedding(vocab_size, embed_dim)
+//   forward(x)              → [seq_len, embed_dim]
+//   update(lr)              → SGD update (skipped if frozen)
+//   update_adam(lr,b1,b2,t) → Adam update
+//   freeze() / unfreeze()
+//   getWeights()            → [weights]
+//   setWeights([w])         → void
 
 export public class Embedding {
     public Embedding(int vocab_size, int embed_dim) {
@@ -11,20 +14,50 @@ export public class Embedding {
         this.embed_dim  = embed_dim
         let std = Math.sqrt(1.0 / vocab_size)
         this.weights = Random.normalTensor([vocab_size, embed_dim], 0.0, std)
+        this.frozen  = false
+        this.mw = Tensor.zeros([vocab_size, embed_dim])
+        this.vw = Tensor.zeros([vocab_size, embed_dim])
+        this.pw = Tensor.zeros([vocab_size, embed_dim])
     }
 
     public forward(x) {
-        // one_hot is NOT tracked (indices are not parameters); matmul IS tracked
         let oh = x.one_hot(this.vocab_size)
         return oh.matmul(this.weights)
     }
 
     public update(lr) {
+        if (this.frozen) { return }
         let dw = Autodiff.gradient(this.weights)
         this.weights = this.weights.sub(dw.scale(lr))
     }
 
-    public parameters() {
-        return [this.weights]
+    public update_adam(lr, beta1, beta2, t) {
+        if (this.frozen) { return }
+        let dw = Autodiff.gradient(this.weights)
+        this.mw = this.mw.scale(beta1).add(dw.scale(1.0 - beta1))
+        this.vw = this.vw.scale(beta2).add(dw.mul(dw).scale(1.0 - beta2))
+        let b1t = Math.pow(beta1, t)
+        let b2t = Math.pow(beta2, t)
+        let mw_hat = this.mw.scale(1.0 / (1.0 - b1t))
+        let vw_hat = this.vw.scale(1.0 / (1.0 - b2t))
+        let rows = this.weights.shape()[0]
+        let cols = this.weights.shape()[1]
+        let eps_w = Tensor.ones([rows * cols]).scale(0.0000001).reshape([rows, cols])
+        let inv_w = vw_hat.sqrt().add(eps_w).pow(-1.0)
+        this.weights = this.weights.sub(mw_hat.mul(inv_w).scale(lr))
     }
+
+    public update_momentum(lr, momentum) {
+        if (this.frozen) { return }
+        let dw = Autodiff.gradient(this.weights)
+        this.pw = this.pw.scale(momentum).sub(dw.scale(lr))
+        this.weights = this.weights.add(this.pw)
+    }
+
+    public freeze()   { this.frozen = true  }
+    public unfreeze() { this.frozen = false }
+
+    public getWeights() { return [this.weights] }
+    public setWeights(ws) { this.weights = ws[0] }
+    public parameters() { return [this.weights] }
 }

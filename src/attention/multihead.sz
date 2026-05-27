@@ -1,12 +1,7 @@
-// MultiHeadAttention layer — scaled dot-product self-attention
+// MultiHeadAttention + LayerNorm layers
 //
-// Usage:
-//   let attn = new MultiHeadAttention(d_model, n_heads)
-//   let y    = attn.forward(x)    // x: [seq_len, d_model] → same shape
-//   attn.update(lr)
-//
-// Weights: Wq, Wk, Wv, Wo each [d_model, d_model]
-// Internally uses x.mha() — native Rust with full BPTT
+// Both support: update(lr), update_adam(lr,b1,b2,t), update_momentum(lr,m),
+//               freeze/unfreeze, getWeights/setWeights
 
 export public class MultiHeadAttention {
     public MultiHeadAttention(int d_model, int n_heads) {
@@ -17,6 +12,21 @@ export public class MultiHeadAttention {
         this.Wk = Random.normalTensor([d_model, d_model], 0.0, std)
         this.Wv = Random.normalTensor([d_model, d_model], 0.0, std)
         this.Wo = Random.normalTensor([d_model, d_model], 0.0, std)
+        this.frozen = false
+        // Adam moments
+        this.mWq = Tensor.zeros([d_model, d_model])
+        this.vWq = Tensor.zeros([d_model, d_model])
+        this.mWk = Tensor.zeros([d_model, d_model])
+        this.vWk = Tensor.zeros([d_model, d_model])
+        this.mWv = Tensor.zeros([d_model, d_model])
+        this.vWv = Tensor.zeros([d_model, d_model])
+        this.mWo = Tensor.zeros([d_model, d_model])
+        this.vWo = Tensor.zeros([d_model, d_model])
+        // Momentum velocity
+        this.pWq = Tensor.zeros([d_model, d_model])
+        this.pWk = Tensor.zeros([d_model, d_model])
+        this.pWv = Tensor.zeros([d_model, d_model])
+        this.pWo = Tensor.zeros([d_model, d_model])
     }
 
     public forward(x) {
@@ -24,6 +34,7 @@ export public class MultiHeadAttention {
     }
 
     public update(lr) {
+        if (this.frozen) { return }
         let dWq = Autodiff.gradient(this.Wq)
         let dWk = Autodiff.gradient(this.Wk)
         let dWv = Autodiff.gradient(this.Wv)
@@ -34,28 +45,112 @@ export public class MultiHeadAttention {
         this.Wo = this.Wo.sub(dWo.scale(lr))
     }
 
-    public parameters() {
-        return [this.Wq, this.Wk, this.Wv, this.Wo]
+    public update_adam(lr, beta1, beta2, t) {
+        if (this.frozen) { return }
+        let dWq = Autodiff.gradient(this.Wq)
+        let dWk = Autodiff.gradient(this.Wk)
+        let dWv = Autodiff.gradient(this.Wv)
+        let dWo = Autodiff.gradient(this.Wo)
+        this.mWq = this.mWq.scale(beta1).add(dWq.scale(1.0 - beta1))
+        this.vWq = this.vWq.scale(beta2).add(dWq.mul(dWq).scale(1.0 - beta2))
+        this.mWk = this.mWk.scale(beta1).add(dWk.scale(1.0 - beta1))
+        this.vWk = this.vWk.scale(beta2).add(dWk.mul(dWk).scale(1.0 - beta2))
+        this.mWv = this.mWv.scale(beta1).add(dWv.scale(1.0 - beta1))
+        this.vWv = this.vWv.scale(beta2).add(dWv.mul(dWv).scale(1.0 - beta2))
+        this.mWo = this.mWo.scale(beta1).add(dWo.scale(1.0 - beta1))
+        this.vWo = this.vWo.scale(beta2).add(dWo.mul(dWo).scale(1.0 - beta2))
+        let b1t = Math.pow(beta1, t)
+        let b2t = Math.pow(beta2, t)
+        let inv  = 1.0 / (1.0 - b1t)
+        let inv2 = 1.0 / (1.0 - b2t)
+        let d = this.d_model
+        let eps_W = Tensor.ones([d * d]).scale(0.0000001).reshape([d, d])
+        this.Wq = this.Wq.sub(this.mWq.scale(inv).mul(this.vWq.scale(inv2).sqrt().add(eps_W).pow(-1.0)).scale(lr))
+        this.Wk = this.Wk.sub(this.mWk.scale(inv).mul(this.vWk.scale(inv2).sqrt().add(eps_W).pow(-1.0)).scale(lr))
+        this.Wv = this.Wv.sub(this.mWv.scale(inv).mul(this.vWv.scale(inv2).sqrt().add(eps_W).pow(-1.0)).scale(lr))
+        this.Wo = this.Wo.sub(this.mWo.scale(inv).mul(this.vWo.scale(inv2).sqrt().add(eps_W).pow(-1.0)).scale(lr))
     }
+
+    public update_momentum(lr, momentum) {
+        if (this.frozen) { return }
+        let dWq = Autodiff.gradient(this.Wq)
+        let dWk = Autodiff.gradient(this.Wk)
+        let dWv = Autodiff.gradient(this.Wv)
+        let dWo = Autodiff.gradient(this.Wo)
+        this.pWq = this.pWq.scale(momentum).sub(dWq.scale(lr))
+        this.pWk = this.pWk.scale(momentum).sub(dWk.scale(lr))
+        this.pWv = this.pWv.scale(momentum).sub(dWv.scale(lr))
+        this.pWo = this.pWo.scale(momentum).sub(dWo.scale(lr))
+        this.Wq = this.Wq.add(this.pWq)
+        this.Wk = this.Wk.add(this.pWk)
+        this.Wv = this.Wv.add(this.pWv)
+        this.Wo = this.Wo.add(this.pWo)
+    }
+
+    public freeze()   { this.frozen = true  }
+    public unfreeze() { this.frozen = false }
+    public getWeights() { return [this.Wq, this.Wk, this.Wv, this.Wo] }
+    public setWeights(ws) {
+        this.Wq = ws[0]; this.Wk = ws[1]; this.Wv = ws[2]; this.Wo = ws[3]
+    }
+    public parameters() { return [this.Wq, this.Wk, this.Wv, this.Wo] }
 }
 
-// LayerNorm layer — normalizes last axis, learnable scale/shift
 export public class LayerNorm {
-    public LayerNorm(int d_model, decimal eps) {
+    public LayerNorm(int d_model, eps) {
         this.d_model = d_model
         this.eps     = eps
         this.gamma   = Tensor.ones([d_model])
         this.beta    = Tensor.zeros([d_model])
+        this.frozen  = false
+        this.mg  = Tensor.zeros([d_model])
+        this.vg  = Tensor.zeros([d_model])
+        this.mbn = Tensor.zeros([d_model])
+        this.vbn = Tensor.zeros([d_model])
+        this.pg  = Tensor.zeros([d_model])
+        this.pbn = Tensor.zeros([d_model])
     }
 
-    public forward(x) {
-        return x.layer_norm(this.gamma, this.beta, this.eps)
-    }
+    public forward(x) { return x.layer_norm(this.gamma, this.beta, this.eps) }
 
     public update(lr) {
+        if (this.frozen) { return }
         let dg = Autodiff.gradient(this.gamma)
         let db = Autodiff.gradient(this.beta)
         this.gamma = this.gamma.sub(dg.scale(lr))
         this.beta  = this.beta.sub(db.scale(lr))
     }
+
+    public update_adam(lr, beta1, beta2, t) {
+        if (this.frozen) { return }
+        let dg = Autodiff.gradient(this.gamma)
+        let db = Autodiff.gradient(this.beta)
+        this.mg  = this.mg.scale(beta1).add(dg.scale(1.0 - beta1))
+        this.vg  = this.vg.scale(beta2).add(dg.mul(dg).scale(1.0 - beta2))
+        this.mbn = this.mbn.scale(beta1).add(db.scale(1.0 - beta1))
+        this.vbn = this.vbn.scale(beta2).add(db.mul(db).scale(1.0 - beta2))
+        let b1t = Math.pow(beta1, t)
+        let b2t = Math.pow(beta2, t)
+        let inv  = 1.0 / (1.0 - b1t)
+        let inv2 = 1.0 / (1.0 - b2t)
+        let n = this.d_model
+        let eps_v = Tensor.ones([n]).scale(0.0000001)
+        this.gamma = this.gamma.sub(this.mg.scale(inv).mul(this.vg.scale(inv2).sqrt().add(eps_v).pow(-1.0)).scale(lr))
+        this.beta  = this.beta.sub(this.mbn.scale(inv).mul(this.vbn.scale(inv2).sqrt().add(eps_v).pow(-1.0)).scale(lr))
+    }
+
+    public update_momentum(lr, momentum) {
+        if (this.frozen) { return }
+        let dg = Autodiff.gradient(this.gamma)
+        let db = Autodiff.gradient(this.beta)
+        this.pg  = this.pg.scale(momentum).sub(dg.scale(lr))
+        this.pbn = this.pbn.scale(momentum).sub(db.scale(lr))
+        this.gamma = this.gamma.add(this.pg)
+        this.beta  = this.beta.add(this.pbn)
+    }
+
+    public freeze()   { this.frozen = true  }
+    public unfreeze() { this.frozen = false }
+    public getWeights() { return [this.gamma, this.beta] }
+    public setWeights(ws) { this.gamma = ws[0]; this.beta = ws[1] }
 }

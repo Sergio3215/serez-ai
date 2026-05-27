@@ -1,13 +1,8 @@
-// TransformerBlock — self-attention + feed-forward with residual connections
+// TransformerBlock — self-attention + feed-forward with residual + Post-LN
 //
-// Usage:
-//   let block = new TransformerBlock(d_model, n_heads, d_ff)
-//   let y     = block.forward(x)   // x: [seq_len, d_model] → same shape
-//   block.update(lr)
-//
-// Architecture (Post-LN):
+// Architecture:
 //   h = LayerNorm(x + MHA(x))
-//   y = LayerNorm(h + FFN(h))        FFN = Dense(d_ff, relu) → Dense(d_model)
+//   y = LayerNorm(h + FFN(h))   FFN = Dense(d_ff, relu) → Dense(d_model)
 
 import "multihead"
 
@@ -18,23 +13,92 @@ export public class TransformerBlock {
         this.ff1  = new Dense(d_model, d_ff, "relu")
         this.ff2  = new Dense(d_ff, d_model, "linear")
         this.ln2  = new LayerNorm(d_model, 0.000001)
+        this.frozen = false
     }
 
     public forward(x) {
-        // Self-attention sublayer with residual + layer norm
         let attn_out = this.attn.forward(x)
         let h = this.ln1.forward(attn_out.add(x))
-
-        // Feed-forward sublayer with residual + layer norm
         let ff_out = this.ff2.forward(this.ff1.forward(h))
         return this.ln2.forward(ff_out.add(h))
     }
 
     public update(lr) {
+        if (this.frozen) { return }
         this.attn.update(lr)
         this.ln1.update(lr)
         this.ff1.update(lr)
         this.ff2.update(lr)
         this.ln2.update(lr)
+    }
+
+    public update_adam(lr, beta1, beta2, t) {
+        if (this.frozen) { return }
+        this.attn.update_adam(lr, beta1, beta2, t)
+        this.ln1.update_adam(lr, beta1, beta2, t)
+        this.ff1.update_adam(lr, beta1, beta2, t)
+        this.ff2.update_adam(lr, beta1, beta2, t)
+        this.ln2.update_adam(lr, beta1, beta2, t)
+    }
+
+    public update_momentum(lr, momentum) {
+        if (this.frozen) { return }
+        this.attn.update_momentum(lr, momentum)
+        this.ln1.update_momentum(lr, momentum)
+        this.ff1.update_momentum(lr, momentum)
+        this.ff2.update_momentum(lr, momentum)
+        this.ln2.update_momentum(lr, momentum)
+    }
+
+    public freeze() {
+        this.frozen = true
+        this.attn.freeze()
+        this.ln1.freeze()
+        this.ff1.freeze()
+        this.ff2.freeze()
+        this.ln2.freeze()
+    }
+
+    public unfreeze() {
+        this.frozen = false
+        this.attn.unfreeze()
+        this.ln1.unfreeze()
+        this.ff1.unfreeze()
+        this.ff2.unfreeze()
+        this.ln2.unfreeze()
+    }
+
+    public getWeights() {
+        let ws = []
+        let attn_ws = this.attn.getWeights()
+        let ln1_ws  = this.ln1.getWeights()
+        let ff1_ws  = this.ff1.getWeights()
+        let ff2_ws  = this.ff2.getWeights()
+        let ln2_ws  = this.ln2.getWeights()
+        let i = 0
+        while (i < attn_ws.length()) { ws.push(attn_ws[i]); i = i + 1 }
+        i = 0
+        while (i < ln1_ws.length())  { ws.push(ln1_ws[i]);  i = i + 1 }
+        i = 0
+        while (i < ff1_ws.length())  { ws.push(ff1_ws[i]);  i = i + 1 }
+        i = 0
+        while (i < ff2_ws.length())  { ws.push(ff2_ws[i]);  i = i + 1 }
+        i = 0
+        while (i < ln2_ws.length())  { ws.push(ln2_ws[i]);  i = i + 1 }
+        return ws
+    }
+
+    public setWeights(ws) {
+        // attn: 4 weights, ln1: 2, ff1: 2, ff2: 2, ln2: 2
+        let attn_ws = [ws[0], ws[1], ws[2], ws[3]]
+        let ln1_ws  = [ws[4], ws[5]]
+        let ff1_ws  = [ws[6], ws[7]]
+        let ff2_ws  = [ws[8], ws[9]]
+        let ln2_ws  = [ws[10], ws[11]]
+        this.attn.setWeights(attn_ws)
+        this.ln1.setWeights(ln1_ws)
+        this.ff1.setWeights(ff1_ws)
+        this.ff2.setWeights(ff2_ws)
+        this.ln2.setWeights(ln2_ws)
     }
 }
