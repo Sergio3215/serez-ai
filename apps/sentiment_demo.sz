@@ -1,0 +1,156 @@
+// Sentiment demo — Embedding → LSTM → Dense, tiny synthetic dataset
+//
+// Vocabulary: 10 tokens (indices 0-9)
+//   Positive patterns: high-index tokens [6,7,8,9]
+//   Negative patterns: low-index tokens  [0,1,2,3]
+//
+// Architecture:
+//   Embedding(10, 8)    → [seq_len, 8]
+//   LSTM(8, 16)         → [1, 16]
+//   Dense(16, 1, sigmoid) → [1, 1]
+
+import "serez-ai"
+
+Random.seed(42)
+
+let vocab  = 10
+let embed  = 8
+let hidden = 16
+let lr     = 0.05
+
+let emb   = new Embedding(vocab, embed)
+let lstm  = new LSTM(embed, hidden)
+let out_l = new Dense(hidden, 1, "sigmoid")
+let mse   = new MSE()
+
+// Training data: 8 sequences of length 4
+let pos_0 = Tensor.from([7.0, 8.0, 9.0, 6.0])
+let pos_1 = Tensor.from([6.0, 7.0, 8.0, 9.0])
+let pos_2 = Tensor.from([8.0, 9.0, 7.0, 6.0])
+let pos_3 = Tensor.from([9.0, 6.0, 7.0, 8.0])
+let neg_0 = Tensor.from([1.0, 2.0, 3.0, 0.0])
+let neg_1 = Tensor.from([0.0, 1.0, 2.0, 3.0])
+let neg_2 = Tensor.from([2.0, 3.0, 0.0, 1.0])
+let neg_3 = Tensor.from([3.0, 0.0, 1.0, 2.0])
+
+let target_pos = Tensor.ones([1, 1])
+let target_neg = Tensor.zeros([1, 1])
+
+out "╔═══════════════════════════════════════════╗"
+out "║  serez-ai v0.3  ·  Sentiment demo (LSTM)  ║"
+out "╚═══════════════════════════════════════════╝"
+out ""
+out "Vocab=10  Embed=8  Hidden=16  LR=0.05"
+out "Training 150 epochs (8 samples, online SGD)..."
+out ""
+
+for (let epoch = 0; epoch < 150; epoch++) {
+    let total_loss = 0.0
+
+    // Helper: one forward+backward step
+    // Positive examples
+    Autodiff.tape()
+    let h0 = emb.forward(pos_0)
+    let h1 = lstm.forward(h0)
+    let p0 = out_l.forward(h1)
+    let l0 = mse.forward(p0, target_pos)
+    Autodiff.backward(l0)
+    emb.update(lr)
+    lstm.update(lr)
+    out_l.update(lr)
+    total_loss = total_loss + l0.get(0)
+
+    Autodiff.tape()
+    let e1 = emb.forward(pos_1)
+    let h_1 = lstm.forward(e1)
+    let p1 = out_l.forward(h_1)
+    let l1 = mse.forward(p1, target_pos)
+    Autodiff.backward(l1)
+    emb.update(lr)
+    lstm.update(lr)
+    out_l.update(lr)
+    total_loss = total_loss + l1.get(0)
+
+    Autodiff.tape()
+    let e2 = emb.forward(pos_2)
+    let h_2 = lstm.forward(e2)
+    let p2 = out_l.forward(h_2)
+    let l2 = mse.forward(p2, target_pos)
+    Autodiff.backward(l2)
+    emb.update(lr)
+    lstm.update(lr)
+    out_l.update(lr)
+    total_loss = total_loss + l2.get(0)
+
+    Autodiff.tape()
+    let e3 = emb.forward(pos_3)
+    let h_3 = lstm.forward(e3)
+    let p3 = out_l.forward(h_3)
+    let l3 = mse.forward(p3, target_pos)
+    Autodiff.backward(l3)
+    emb.update(lr)
+    lstm.update(lr)
+    out_l.update(lr)
+    total_loss = total_loss + l3.get(0)
+
+    // Negative examples
+    Autodiff.tape()
+    let e4 = emb.forward(neg_0)
+    let h_4 = lstm.forward(e4)
+    let p4 = out_l.forward(h_4)
+    let l4 = mse.forward(p4, target_neg)
+    Autodiff.backward(l4)
+    emb.update(lr)
+    lstm.update(lr)
+    out_l.update(lr)
+    total_loss = total_loss + l4.get(0)
+
+    Autodiff.tape()
+    let e5 = emb.forward(neg_1)
+    let h_5 = lstm.forward(e5)
+    let p5 = out_l.forward(h_5)
+    let l5 = mse.forward(p5, target_neg)
+    Autodiff.backward(l5)
+    emb.update(lr)
+    lstm.update(lr)
+    out_l.update(lr)
+    total_loss = total_loss + l5.get(0)
+
+    Autodiff.tape()
+    let e6 = emb.forward(neg_2)
+    let h_6 = lstm.forward(e6)
+    let p6 = out_l.forward(h_6)
+    let l6 = mse.forward(p6, target_neg)
+    Autodiff.backward(l6)
+    emb.update(lr)
+    lstm.update(lr)
+    out_l.update(lr)
+    total_loss = total_loss + l6.get(0)
+
+    Autodiff.tape()
+    let e7 = emb.forward(neg_3)
+    let h_7 = lstm.forward(e7)
+    let p7 = out_l.forward(h_7)
+    let l7 = mse.forward(p7, target_neg)
+    Autodiff.backward(l7)
+    emb.update(lr)
+    lstm.update(lr)
+    out_l.update(lr)
+    total_loss = total_loss + l7.get(0)
+
+    if (epoch % 30 == 0) {
+        out "Epoch " + epoch + "  avg loss: " + (total_loss / 8.0)
+    }
+}
+
+out ""
+out "Final predictions:"
+let tp = emb.forward(pos_0)
+let ht = lstm.forward(tp)
+let pred_pos = out_l.forward(ht)
+out "  Positive [7,8,9,6]: " + pred_pos.get(0, 0) + "  (expect ~1.0)"
+
+let tn = emb.forward(neg_0)
+let hn = lstm.forward(tn)
+let pred_neg = out_l.forward(hn)
+out "  Negative [1,2,3,0]: " + pred_neg.get(0, 0) + "  (expect ~0.0)"

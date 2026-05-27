@@ -1,0 +1,70 @@
+// Recurrent layers: LSTM and GRU
+//
+// LSTM(input_size, hidden_size)
+//   forward(x): x[seq_len, input_size] → [1, hidden_size]  (last hidden state)
+//   update(lr): SGD update on Wx, Wh, b
+//
+// GRU(input_size, hidden_size)
+//   forward(x): x[seq_len, input_size] → [1, hidden_size]
+//   update(lr): SGD update on Wx, Wh, b
+//
+// Weights layout:
+//   LSTM — Wx[input_size, 4*H], Wh[H, 4*H], b[4*H]   (i,f,g,o gates concatenated)
+//   GRU  — Wx[input_size, 3*H], Wh[H, 3*H], b[3*H]   (r,z,n gates concatenated)
+
+export public class LSTM {
+    public LSTM(int input_size, int hidden_size) {
+        this.hidden_size = hidden_size
+        let std = Math.sqrt(1.0 / input_size)
+        this.Wx = Random.normalTensor([input_size,   4 * hidden_size], 0.0, std)
+        this.Wh = Random.normalTensor([hidden_size,  4 * hidden_size], 0.0, std)
+        this.b  = Tensor.zeros([4 * hidden_size])
+    }
+
+    public forward(x) {
+        let h0 = Tensor.zeros([1, this.hidden_size])
+        let c0 = Tensor.zeros([1, this.hidden_size])
+        return x.lstm(this.Wx, this.Wh, this.b, h0, c0)
+    }
+
+    public update(lr) {
+        let dWx = Autodiff.gradient(this.Wx)
+        let dWh = Autodiff.gradient(this.Wh)
+        let db  = Autodiff.gradient(this.b)
+        this.Wx = this.Wx.sub(dWx.scale(lr))
+        this.Wh = this.Wh.sub(dWh.scale(lr))
+        this.b  = this.b.sub(db.scale(lr))
+    }
+
+    public parameters() {
+        return [this.Wx, this.Wh, this.b]
+    }
+}
+
+export public class GRU {
+    public GRU(int input_size, int hidden_size) {
+        this.hidden_size = hidden_size
+        let std = Math.sqrt(1.0 / input_size)
+        this.Wx = Random.normalTensor([input_size,   3 * hidden_size], 0.0, std)
+        this.Wh = Random.normalTensor([hidden_size,  3 * hidden_size], 0.0, std)
+        this.b  = Tensor.zeros([3 * hidden_size])
+    }
+
+    public forward(x) {
+        let h0 = Tensor.zeros([1, this.hidden_size])
+        return x.gru(this.Wx, this.Wh, this.b, h0)
+    }
+
+    public update(lr) {
+        let dWx = Autodiff.gradient(this.Wx)
+        let dWh = Autodiff.gradient(this.Wh)
+        let db  = Autodiff.gradient(this.b)
+        this.Wx = this.Wx.sub(dWx.scale(lr))
+        this.Wh = this.Wh.sub(dWh.scale(lr))
+        this.b  = this.b.sub(db.scale(lr))
+    }
+
+    public parameters() {
+        return [this.Wx, this.Wh, this.b]
+    }
+}

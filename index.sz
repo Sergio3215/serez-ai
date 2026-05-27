@@ -1,14 +1,16 @@
 // serez-ai — high-level neural network library for Serez-Code
-// Version 0.2.0
+// Version 0.3.0
 //
 // Usage:
 //   import "serez-ai"
 //
-// Exports: Dense, Conv2D, MaxPool2D, Flatten, MSE, BCE, Sequential
+// Exports: Dense, Conv2D, MaxPool2D, Flatten, Embedding, LSTM, GRU, MSE, BCE, Sequential
 
 import "src/layers/dense"
 import "src/layers/conv2d"
 import "src/layers/pooling"
 import "src/layers/flatten"
+import "src/layers/embedding"
+import "src/layers/recurrent"
 import "src/training/losses"
 import "src/models/sequential"

@@ -1,0 +1,30 @@
+// Embedding layer — lookup table via one-hot + matmul (autodiff-compatible)
+//
+// Usage:
+//   let emb = new Embedding(vocab_size, embed_dim)
+//   let y   = emb.forward(x)   // x: Tensor[seq_len] of integer indices → [seq_len, embed_dim]
+//   emb.update(lr)
+
+export public class Embedding {
+    public Embedding(int vocab_size, int embed_dim) {
+        this.vocab_size = vocab_size
+        this.embed_dim  = embed_dim
+        let std = Math.sqrt(1.0 / vocab_size)
+        this.weights = Random.normalTensor([vocab_size, embed_dim], 0.0, std)
+    }
+
+    public forward(x) {
+        // one_hot is NOT tracked (indices are not parameters); matmul IS tracked
+        let oh = x.one_hot(this.vocab_size)
+        return oh.matmul(this.weights)
+    }
+
+    public update(lr) {
+        let dw = Autodiff.gradient(this.weights)
+        this.weights = this.weights.sub(dw.scale(lr))
+    }
+
+    public parameters() {
+        return [this.weights]
+    }
+}
