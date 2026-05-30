@@ -1,0 +1,8 @@
+{
+  "name": "serez-ai",
+  "version": "1.0.2",
+  "description": "Native AI library for Serez Code — neural networks, autodiff, tensors and random.",
+  "main": "index.sz",
+  "author": "Sergio3215",
+  "dependencies": {}
+}
