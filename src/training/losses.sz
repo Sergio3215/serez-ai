@@ -16,19 +16,11 @@ export public class MSE {
 export public class BCE {
     public BCE() {}
 
-    // Numerically stable binary cross-entropy
-    // pred: Tensor with values in (0,1) (sigmoid output)
-    // target: Tensor with 0.0 or 1.0 labels
+    // Numerically stable binary cross-entropy.
+    // pred: Tensor with values in (0,1) (sigmoid output); target: 0.0/1.0 labels.
+    // Delegates to the core's fused autodiff op (correct backward); a manual
+    // log/mul reconstruction does NOT propagate gradients (.log() has no backward).
     public forward(pred, target) {
-        let eps = 1e-7
-        let p   = pred.clamp(eps, 1.0 - eps)
-        let lp  = p.log()
-        let l1p = p.scale(-1.0).add(Tensor.fill([p.shape()[0]], 1.0)).log()
-        let ones = Tensor.fill([target.shape()[0]], 1.0)
-        let t1   = ones.sub(target)
-        let term1 = target.mul(lp)
-        let term2 = t1.mul(l1p)
-        let total = term1.add(term2)
-        return total.mean().scale(-1.0)
+        return Autodiff.bceLoss(pred, target)
     }
 }
