@@ -1,0 +1,79 @@
+// unit_dense.sz — Tests para serez-ai/src/layers/dense.sz
+// Nota: no usar "out" como nombre de variable (keyword de serez-code).
+// Dense.forward retorna Tensor[batch, out_features] → para elementos usar .reshape([n]).get(i)
+
+import "src/layers/dense"
+
+// ── Construcción y shape ──────────────────────────────────────────────────────
+test("Dense: forward produce shape [1, out_features]", () => {
+    let d = new Dense(4, 3, "none")
+    let x = Tensor.from([1.0, 0.0, 0.5, -1.0]).reshape([1, 4])
+    let fwd = d.forward(x)
+    let sh = fwd.shape()
+    assert(sh[0] == 1, "batch dim = 1")
+    assert(sh[1] == 3, "out_features = 3")
+})
+test("Dense: forward con batch > 1", () => {
+    let d = new Dense(2, 4, "none")
+    let x = Tensor.from([1.0, 0.0, -1.0, 1.0]).reshape([2, 2])
+    let fwd = d.forward(x)
+    let sh = fwd.shape()
+    assert(sh[0] == 2, "batch dim = 2")
+    assert(sh[1] == 4, "out_features = 4")
+})
+
+// ── Activaciones ──────────────────────────────────────────────────────────────
+test("Dense: relu anula negativos y preserva positivos", () => {
+    let d = new Dense(1, 3, "relu")
+    let w = Tensor.from([-10.0, 5.0, -3.0]).reshape([1, 3])
+    let b = Tensor.zeros([3])
+    d.setWeights([w, b])
+    let x = Tensor.from([1.0]).reshape([1, 1])
+    let fwd = d.forward(x)
+    // fwd shape [1,3] → reshape a [3] para acceso por índice
+    let flat = fwd.reshape([3])
+    assert(flat.get(0) >= 0.0, "relu ≥ 0 primer elemento (era -10)")
+    assert(flat.get(2) >= 0.0, "relu ≥ 0 tercer elemento (era -3)")
+    assert(Math.abs(flat.get(1) - 5.0) < 1e-5, "relu preserva positivo (era 5)")
+})
+test("Dense: sigmoid output en (0,1)", () => {
+    let d = new Dense(2, 2, "sigmoid")
+    let x = Tensor.from([1.0, -1.0]).reshape([1, 2])
+    let fwd = d.forward(x)
+    let flat = fwd.reshape([2])
+    assert(flat.get(0) > 0.0, "sigmoid > 0")
+    assert(flat.get(0) < 1.0, "sigmoid < 1")
+    assert(flat.get(1) > 0.0, "sigmoid > 0 segundo")
+    assert(flat.get(1) < 1.0, "sigmoid < 1 segundo")
+})
+test("Dense: activación inválida → identity (sin crash)", () => {
+    let d = new Dense(2, 2, "xxxxxx")
+    let x = Tensor.from([1.0, 0.0]).reshape([1, 2])
+    let fwd = d.forward(x)
+    let sh = fwd.shape()
+    assert(sh[1] == 2, "forward ok con activación desconocida")
+})
+
+// ── getWeights / setWeights ───────────────────────────────────────────────────
+test("Dense: getWeights retorna [weights, bias]", () => {
+    let d = new Dense(3, 2, "none")
+    let wb = d.getWeights()
+    assert(wb.length() == 2, "retorna exactamente 2 tensores [w, b]")
+    let w_sh = wb[0].shape()
+    let b_sh = wb[1].shape()
+    assert(w_sh[0] == 3, "weights filas = in_features")
+    assert(w_sh[1] == 2, "weights cols = out_features")
+    assert(b_sh[0] == 2, "bias size = out_features")
+})
+
+// ── freeze / unfreeze ─────────────────────────────────────────────────────────
+test("Dense: freeze / unfreeze del flag", () => {
+    let d = new Dense(2, 2, "none")
+    assert(!d.frozen, "frozen=false inicialmente")
+    d.freeze()
+    assert(d.frozen, "frozen=true después de freeze()")
+    d.unfreeze()
+    assert(!d.frozen, "frozen=false después de unfreeze()")
+})
+
+summary()

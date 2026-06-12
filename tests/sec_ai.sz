@@ -1,0 +1,60 @@
+// sec_ai.sz — Tests de seguridad para serez-ai (capas y pérdidas)
+// MSE.forward → decimal; BCE.forward → Tensor; Dense.forward → Tensor[batch, out]
+
+import "src/training/losses"
+import "src/layers/dense"
+
+// ── MSE: escalar vs escalar ────────────────────────────────────────────────────
+test("MSE: escalar vs escalar no crashea", () => {
+    let mse = new MSE()
+    let p = Tensor.from([0.5])
+    let t = Tensor.from([1.0])
+    let loss = mse.forward(p, t)
+    assert(loss >= 0.0, "MSE decimal ≥ 0")
+})
+
+// ── BCE: valores en extremos ──────────────────────────────────────────────────
+test("BCE: predicciones extremas → numérica estable", () => {
+    let bce = new BCE()
+    let pred   = Tensor.from([0.001, 0.999])
+    let target = Tensor.from([0.0,   1.0])
+    let lT = bce.forward(pred, target)
+    let lv = lT.get(0)
+    assert(lv >= 0.0, "BCE no negativa con extremos")
+    assert(lv < 100.0, "BCE acotada con extremos")
+})
+
+// ── Dense: pesos todos cero → output cero ─────────────────────────────────────
+test("Dense: pesos todos cero → output cero (none)", () => {
+    let d = new Dense(3, 2, "none")
+    let w = Tensor.zeros([3, 2])
+    let b = Tensor.zeros([2])
+    d.setWeights([w, b])
+    let x = Tensor.from([1.0, 2.0, 3.0]).reshape([1, 3])
+    let fwd = d.forward(x)
+    let flat = fwd.reshape([2])
+    assert(Math.abs(flat.get(0)) < 1e-9, "output 0 con pesos cero")
+    assert(Math.abs(flat.get(1)) < 1e-9, "output 0 con pesos cero")
+})
+
+// ── Dense: dos instancias no comparten frozen ─────────────────────────────────
+test("Dense: dos instancias no comparten frozen", () => {
+    let d1 = new Dense(2, 2, "none")
+    let d2 = new Dense(2, 2, "none")
+    d1.freeze()
+    assert(d1.frozen, "d1 frozen")
+    assert(!d2.frozen, "d2 no afectado por freeze de d1")
+})
+
+// ── MSE: instancias independientes ───────────────────────────────────────────
+test("MSE: instancias independientes dan igual resultado", () => {
+    let mse1 = new MSE()
+    let mse2 = new MSE()
+    let p = Tensor.from([1.0])
+    let t = Tensor.from([0.0])
+    let l1 = mse1.forward(p, t)
+    let l2 = mse2.forward(p, t)
+    assert(Math.abs(l1 - l2) < 1e-9, "dos instancias MSE = mismo resultado")
+})
+
+summary()

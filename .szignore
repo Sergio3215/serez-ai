@@ -1,3 +1,7 @@
 /apps/
 apps/
 publish.ps1
+*.ps1
+*.sh
+tests/
+/tests/

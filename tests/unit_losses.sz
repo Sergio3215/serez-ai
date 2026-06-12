@@ -1,0 +1,64 @@
+// unit_losses.sz — Tests para serez-ai/src/training/losses.sz
+// MSE.forward → decimal; BCE.forward → Tensor (vía Autodiff.bceLoss)
+
+import "src/training/losses"
+
+// ── MSE (retorna decimal) ─────────────────────────────────────────────────────
+test("MSE: predicción perfecta → loss 0", () => {
+    let mse = new MSE()
+    let pred   = Tensor.from([1.0, 2.0, 3.0])
+    let target = Tensor.from([1.0, 2.0, 3.0])
+    let loss = mse.forward(pred, target)
+    assert(Math.abs(loss - 0.0) < 1e-6, "zero loss en predicción perfecta")
+})
+test("MSE: error constante 1 → loss = 1.0", () => {
+    let mse = new MSE()
+    let pred   = Tensor.from([2.0, 3.0, 4.0])
+    let target = Tensor.from([1.0, 2.0, 3.0])
+    let loss = mse.forward(pred, target)
+    assert(Math.abs(loss - 1.0) < 1e-6, "MSE = 1.0 con error constante 1")
+})
+test("MSE: pérdida no negativa", () => {
+    let mse = new MSE()
+    let pred   = Tensor.from([0.5, -0.5, 1.5])
+    let target = Tensor.from([1.0,  0.0, 1.0])
+    let loss = mse.forward(pred, target)
+    assert(loss >= 0.0, "MSE siempre no-negativa")
+})
+test("MSE: error cuadrático medio correcto (2 elementos, error=2)", () => {
+    let mse = new MSE()
+    // errores: 2, 2 → cuadrados: 4, 4 → media: 4
+    let pred   = Tensor.from([3.0, 4.0])
+    let target = Tensor.from([1.0, 2.0])
+    let loss = mse.forward(pred, target)
+    assert(Math.abs(loss - 4.0) < 1e-6, "MSE = 4.0 con error=2")
+})
+
+// ── BCE (retorna Tensor → extraer con .get(0)) ────────────────────────────────
+test("BCE: predicción casi perfecta → loss baja", () => {
+    let bce = new BCE()
+    let pred   = Tensor.from([0.99, 0.01, 0.99])
+    let target = Tensor.from([1.0,  0.0,  1.0])
+    let lT = bce.forward(pred, target)
+    let lv = lT.get(0)
+    assert(lv >= 0.0, "BCE no negativa")
+    assert(lv < 0.2, "BCE baja con buenas predicciones")
+})
+test("BCE: predicciones muy malas → loss alta", () => {
+    let bce = new BCE()
+    let pred   = Tensor.from([0.01, 0.99, 0.01])
+    let target = Tensor.from([1.0,  0.0,  1.0])
+    let lT = bce.forward(pred, target)
+    let lv = lT.get(0)
+    assert(lv > 1.0, "BCE alta con predicciones muy malas")
+})
+test("BCE: pérdida no negativa con pred balanceadas", () => {
+    let bce = new BCE()
+    let pred   = Tensor.from([0.5, 0.5, 0.5])
+    let target = Tensor.from([1.0, 0.0, 1.0])
+    let lT = bce.forward(pred, target)
+    let lv = lT.get(0)
+    assert(lv >= 0.0, "BCE siempre >= 0")
+})
+
+summary()
