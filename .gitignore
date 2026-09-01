@@ -1,2 +1,5 @@
 /apps/
 publish.ps1
+
+# Documentacion interna generada (no se versiona ni se publica)
+documentacion-internal.md
